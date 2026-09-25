@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "passr",
+  "version": "1.0.0",
+  "description": "Fill and copy passwords from pass, the standard unix password manager. Fast, local, keyboard-first.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxRplS00jD3Yr3VYFm2dipq88ZCgGWq4jmHbqpqR8jUZ0+Wtk/MNAd/xKxDze++Ovn38SAqAmqLvkyIRlCmAF5F3qGT08khjyroLqYZCqhQvhLTC5YWpJS1C5uOcajpfn/SF6nnFiOz6UOO9pKVf+1EsUJteQz3+uHFsrqCIrQNpWwZBdVDC3FZaw35TATpol36TuKpxgHKJK/vm5Sv/sdd59UvPJckIYTxF24hFzfWb88k8F4nZJum45V7iNSQqN7nDwruv8wrT+sWnkDtyPebtuIASqibAwE9kRmcYsbgd1thXkNe2o5ZcrxIuwLs3NZKgxR2A5PgJabQ6LTCC1FQIDAQAB",
+  "permissions": [
+    "nativeMessaging",
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "passr",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+Shift+P",
+        "mac": "Alt+Shift+P"
+      },
+      "description": "Open passr"
+    }
+  }
+}
