@@ -1,4 +1,3 @@
-const HOST = "com.passr.host";
 const MAX_ROWS = 150;
 
 const $q = document.getElementById("q");
@@ -12,18 +11,20 @@ let sel = 0;
 let tab = null;
 let site = null;
 
-function native(msg) {
-  return chrome.runtime.sendNativeMessage(HOST, msg).then(
-    res => {
-      if (res?.error) throw new Error(res.error);
-      return res;
-    },
-    err => {
-      const m = String(err?.message || err);
-      throw new Error(/not found|forbidden/i.test(m)
-        ? "passr helper not installed. See github.com/wes/passr-chrome#install"
-        : m);
-    });
+// All host requests go through the background worker, which outlives the popup
+// (it closes when the passphrase dialog takes focus).
+async function native(msg) {
+  const res = await chrome.runtime.sendMessage(msg);
+  if (res?.error) {
+    clearFlag();
+    throw new Error(res.error);
+  }
+  return res;
+}
+
+function clearFlag() {
+  chrome.action.setBadgeText({ text: "" });
+  chrome.storage.session.remove("lastError");
 }
 
 function status(text, isErr = false) {
@@ -105,52 +106,11 @@ async function fill(entry) {
   if (!tab || !site) return copy(entry, "password");
   status(`Decrypting ${entry}…`);
   try {
-    const creds = await native({ cmd: "show", entry });
-    let results;
-    try {
-      results = await chrome.scripting.executeScript({
-        target: { tabId: tab.id, allFrames: true }, func: fillCreds, args: [creds.username, creds.password],
-      });
-    } catch {
-      results = await chrome.scripting.executeScript({
-        target: { tabId: tab.id }, func: fillCreds, args: [creds.username, creds.password],
-      });
-    }
-    if (results.some(r => r.result)) window.close();
-    else status("No login fields found on this page. Use ⌘C to copy instead.", true);
+    await native({ cmd: "fill", entry, tabId: tab.id });
+    window.close();
   } catch (e) {
     status(e.message, true);
   }
-}
-
-// Runs inside the page. Must be self-contained.
-function fillCreds(username, password) {
-  const usable = el => !el.disabled && !el.readOnly && el.getClientRects().length > 0 &&
-    getComputedStyle(el).visibility !== "hidden";
-  const isUserType = el => ["text", "email", "tel"].includes(el.type);
-  const set = (el, v) => {
-    el.focus();
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, v);
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    el.dispatchEvent(new Event("change", { bubbles: true }));
-  };
-  const inputs = [...document.querySelectorAll("input")].filter(usable);
-  const pw = inputs.find(i => i.type === "password");
-  let user = null;
-  if (pw) {
-    for (let i = inputs.indexOf(pw) - 1; i >= 0; i--) {
-      if (isUserType(inputs[i])) { user = inputs[i]; break; }
-    }
-  } else {
-    const hint = /user|email|login|account|identifier|name/i;
-    const texts = inputs.filter(isUserType);
-    user = texts.find(i => hint.test(i.name + i.id + i.autocomplete + i.placeholder + (i.getAttribute("aria-label") || "")))
-      || (texts.includes(document.activeElement) ? document.activeElement : null);
-  }
-  let filled = false;
-  if (user && username) { set(user, username); filled = true; }
-  if (pw && password) { set(pw, password); filled = true; }
-  return filled;
 }
 
 document.addEventListener("keydown", ev => {
@@ -181,13 +141,14 @@ if (!/Mac/.test(navigator.platform)) {
 
 (async () => {
   const [cached, tabs] = await Promise.all([
-    chrome.storage.session.get("entries"),
+    chrome.storage.session.get(["entries", "lastError"]),
     chrome.tabs.query({ active: true, currentWindow: true }),
   ]);
   tab = tabs[0];
   site = tab?.url && /^https?:/.test(tab.url) ? siteInfo(tab.url) : null;
   $site.textContent = site?.domain || "";
   if (cached.entries) { entries = cached.entries; render(); }
+  if (cached.lastError) { status(cached.lastError, true); clearFlag(); }
 
   try {
     const res = await native({ cmd: "list" });

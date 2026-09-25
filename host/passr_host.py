@@ -57,21 +57,100 @@ def entry_path(entry):
     return path
 
 
+GUI_PINENTRIES = ("pinentry-mac", "pinentry-gnome3", "pinentry-qt", "pinentry-gtk-2", "pinentry-gtk")
+
+
+def run_gpg(path, passphrase=None):
+    # Never let gpg-agent spawn its own pinentry: the configured one is often a
+    # TTY pinentry, which fails without a terminal ("Inappropriate ioctl for device").
+    args = ["gpg", "--decrypt", "--quiet", "--batch", "--yes", "--compress-algo=none", "--no-encrypt-to"]
+    if passphrase is None:
+        args += ["--pinentry-mode", "error"]
+    else:
+        args += ["--pinentry-mode", "loopback", "--passphrase-fd", "0"]
+    p = subprocess.run(args + [path], capture_output=True,
+                       input=None if passphrase is None else passphrase.encode() + b"\n")
+    return p.returncode, p.stdout, p.stderr.decode(errors="replace").strip()
+
+
 def decrypt(entry):
-    p = subprocess.run(
-        ["gpg", "--decrypt", "--quiet", "--batch", "--yes", "--compress-algo=none",
-         "--no-encrypt-to", entry_path(entry)],
-        capture_output=True,
+    path = entry_path(entry)
+    code, out, err = run_gpg(path)
+    error = None
+    for _ in range(3):
+        if code == 0:
+            return out.decode(errors="replace")
+        low = err.lower()
+        if not ("no pinentry" in low or "bad passphrase" in low or "inappropriate ioctl" in low):
+            raise RuntimeError(err or "gpg failed")
+        # Key is locked (or the last attempt was wrong): ask with a GUI prompt, decrypt via
+        # loopback. gpg-agent caches the passphrase, so later requests don't prompt.
+        pw = ask_passphrase(entry, error)
+        code, out, err = run_gpg(path, pw)
+        error = "Wrong passphrase, try again."
+    raise RuntimeError("Wrong passphrase.")
+
+
+def ask_passphrase(entry, error=None):
+    desc = f"Enter your GPG passphrase to unlock “{entry}”."
+    for prog in GUI_PINENTRIES:
+        if shutil.which(prog):
+            return pinentry_getpin(prog, desc, error)
+    if sys.platform == "darwin":
+        return osascript_getpin(desc, error)
+    raise RuntimeError("GPG key is locked and no GUI pinentry is installed "
+                       "(install pinentry-gnome3 or pinentry-qt), or unlock it in a terminal first.")
+
+
+def pinentry_getpin(prog, desc, error=None):
+    """Drive a pinentry program directly over the Assuan protocol."""
+    esc = lambda s: s.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    p = subprocess.Popen([prog], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    def cmd(line=None):
+        if line is not None:
+            p.stdin.write(line.encode() + b"\n")
+            p.stdin.flush()
+        data = []
+        while True:
+            resp = p.stdout.readline().decode(errors="replace").rstrip("\n")
+            if resp.startswith("D "):
+                data.append(resp[2:])
+            elif resp.startswith("OK"):
+                return "".join(data)
+            elif resp.startswith("ERR") or not resp:
+                raise RuntimeError("Unlock cancelled.")
+
+    try:
+        cmd()  # greeting
+        cmd("SETTITLE passr")
+        cmd("SETDESC " + esc(desc))
+        cmd("SETPROMPT Passphrase:")
+        if error:
+            cmd("SETERROR " + esc(error))
+        pin = unquote(cmd("GETPIN"))
+        p.stdin.write(b"BYE\n")
+        p.stdin.flush()
+        return pin
+    finally:
+        p.stdin.close()
+        p.wait()
+
+
+def osascript_getpin(desc, error=None):
+    text = f"{error}\n\n{desc}" if error else desc
+    script = (
+        "on run argv\n"
+        "  activate\n"
+        "  text returned of (display dialog (item 1 of argv) with title \"passr\" "
+        "default answer \"\" with hidden answer with icon caution "
+        "buttons {\"Cancel\", \"Unlock\"} default button \"Unlock\")\n"
+        "end run"
     )
+    p = subprocess.run(["osascript", "-e", script, text], capture_output=True)
     if p.returncode != 0:
-        err = p.stderr.decode(errors="replace").strip()
-        if "pinentry" in err.lower() or "passphrase" in err.lower() or "no secret key" in err.lower():
-            raise RuntimeError(
-                "GPG key is locked. Unlock it once in a terminal (e.g. `pass show "
-                f"{entry}`) or install pinentry-mac for a GUI prompt."
-            )
-        raise RuntimeError(err or "gpg failed")
-    return p.stdout.decode(errors="replace")
+        raise RuntimeError("Unlock cancelled.")
+    return p.stdout.decode().rstrip("\n")
 
 
 def totp(uri):

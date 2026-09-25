@@ -67,17 +67,14 @@ A few brand aliases (bsky → bluesky, etc.) live in [`extension/match.js`](exte
 
 ## GPG passphrase
 
-The browser starts the helper with no terminal, so a TTY-only pinentry can't ask for your passphrase. Use a GUI pinentry instead.
+When your key is locked, passr asks for the passphrase in its own dialog. It uses your GUI pinentry if you have one (`pinentry-mac`, `pinentry-gnome3`, `pinentry-qt`), or a native macOS dialog otherwise. gpg-agent then caches the passphrase as usual, and your gpg-agent config is left untouched.
 
-On macOS:
+gpg-agent forgets the passphrase after 10 minutes idle (and after 2 hours at most). To be asked less often, raise both limits in `~/.gnupg/gpg-agent.conf`:
 
-```sh
-brew install pinentry-mac
-echo "pinentry-program $(brew --prefix)/bin/pinentry-mac" >> ~/.gnupg/gpg-agent.conf
-gpgconf --kill gpg-agent
 ```
-
-On Linux, use `pinentry-gnome3` or `pinentry-qt`. Alternatively, unlock the key in a terminal first (`pass show anything`).
+default-cache-ttl 28800
+max-cache-ttl 86400
+```
 
 ## Privacy
 
