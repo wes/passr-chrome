@@ -83,7 +83,7 @@ Nothing leaves your machine. See [PRIVACY.md](PRIVACY.md).
 ## Development
 
 ```
-extension/        MV3 popup — no background worker, no content scripts
+extension/        MV3 popup + background worker (host requests), no content scripts
 host/             native messaging host (Python, stdlib only)
 install.sh        installs/registers the host
 scripts/build.sh  builds dist/passr-<version>.zip for the Web Store
